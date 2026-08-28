@@ -96,12 +96,15 @@ class Main7 extends AggregateProgramSkeleton:
 object DnbrRangeemo7 extends Simulation[Main7]
 
 class Main8 extends AggregateProgramSkeleton:
-  override def main() = minHoodPlus(nbrRange)
+  override def main() = minHoodPlus((nbrRange()),nbr(mid()))
 
 object Demo8 extends Simulation[Main8]
 
 class Main9 extends AggregateProgramSkeleton:
-  override def main() = rep(0){_+1}
+  override def main() = {
+    //mux(sense1)(rep(0)(x => math.min(1000, x + 1)))(0)
+    if sense1 then rep(0)(x => math.min(1000, x + 1)) else 0
+  }
 
 object Demo9 extends Simulation[Main9]
 
@@ -118,7 +121,7 @@ object Demo11 extends Simulation[Main11]
 class Main12 extends AggregateProgramSkeleton:
   import Builtins.Bounded.of_i
 
-  override def main() = foldhood(false)(_ || _)(nbr{sense1})
+  override def main() = foldhood(Set.empty[ID])(_ ++ _)(Set(nbr(mid()))) // foldhoodplus to not include itself
 
 object Demo12 extends Simulation[Main12]
 
@@ -142,10 +145,13 @@ object Demo15 extends Simulation[Main15]
 
 class Main16 extends AggregateProgramSkeleton:
   override def main() =
-    branch(sense2)(Double.MaxValue)(
-      rep(Double.MaxValue):
-        d => mux[Double](sense1){0.0}{minHoodPlus(nbr{d}+nbrRange)}
-    )
+    rep(Double.MaxValue):
+      d =>
+        mux[Double](sense1) { // switch so sense1 is the selector for start nodes for gradient
+          0.0
+        } {
+          minHoodPlus(nbr {d} + mux(sense2)(5 * nbrRange)(nbrRange))
+        }
 
 object Demo16 extends Simulation[Main16]
 
@@ -165,8 +171,52 @@ class Main19 extends AggregateProgramSkeleton with BlockT:
     decay(10000, 0)(_ - 1)
 object Demo19 extends Simulation[Main19]
 
-/*
-def gradientPropagation(source: Boolean) = rep((Double.MaxValue, mid)):
-    d => mux[(Double, Int)](source)((0.0, mid)):
-      minHoodPlus((nbr{d}._1 + nbrRange(), nbr {d}._2))
- */
+class Partition extends AggregateProgramSkeleton:
+  import Builtins.Bounded.*
+
+  def gradientPropagation(source: Boolean) =
+    rep((Double.MaxValue, mid())):
+      d =>
+        mux[(Double, ID)](source)((0.0, mid())):
+          minHoodPlus(
+            (
+              nbr {d._1} + nbrRange(),
+              nbr {d._2}
+            )
+          )
+  def partition = gradientPropagation(sense1)._2
+  override def main() =  partition
+object Demo20 extends Simulation[Partition]
+
+
+class Channel extends AggregateProgramSkeleton:
+  import Builtins.Bounded.*
+  def gradient(source: Boolean) =
+    rep(Double.MaxValue):
+      d =>
+        mux(source)(0.0):
+          minHoodPlus(nbr {
+            d
+          } + nbrRange())
+
+  def broadcast(source: Boolean, input: Double) =
+    rep((Double.MaxValue, input)):
+      d =>
+        mux[(Double, Double)](source)((0.0, input)):
+          minHoodPlus(
+            (
+              nbr {d._1} + nbrRange(),
+              nbr {d._2}
+            )
+          )
+    ._2
+
+  def distance(source: Boolean, destination: Boolean) =
+    broadcast(source, gradient(destination))
+
+  def channel(source: Boolean, destination: Boolean, width: Double): Boolean =
+    gradient(source) + gradient(destination) <= distance(source, destination) + width
+
+  override def main() = channel(sense1, sense2, 100.0)
+  //override def main() = distance(sense1, sense2)
+object Demo21 extends Simulation[Channel]
