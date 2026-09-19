@@ -126,7 +126,7 @@ class Main12 extends AggregateProgramSkeleton:
 object Demo12 extends Simulation[Main12]
 
 class Main13 extends AggregateProgramSkeleton:
-  override def main() = foldhoodPlus(0)(_+_){nbr{1}}
+  override def main() = foldhoodPlus(0)(_+_){nbr{1}} // no of neighbors
 
 object Demo13 extends Simulation[Main13]
 
@@ -146,12 +146,7 @@ object Demo15 extends Simulation[Main15]
 class Main16 extends AggregateProgramSkeleton:
   override def main() =
     rep(Double.MaxValue):
-      d =>
-        mux[Double](sense1) { // switch so sense1 is the selector for start nodes for gradient
-          0.0
-        } {
-          minHoodPlus(nbr {d} + mux(sense2)(5 * nbrRange)(nbrRange))
-        }
+      d => mux[Double](sense1) {0.0} {minHoodPlus(nbr{d} + mux(sense2)(5 * nbrRange)(nbrRange))}
 
 object Demo16 extends Simulation[Main16]
 
@@ -174,49 +169,60 @@ object Demo19 extends Simulation[Main19]
 class Partition extends AggregateProgramSkeleton:
   import Builtins.Bounded.*
 
-  def gradientPropagation(source: Boolean) =
-    rep((Double.MaxValue, mid())):
-      d =>
-        mux[(Double, ID)](source)((0.0, mid())):
-          minHoodPlus(
-            (
-              nbr {d._1} + nbrRange(),
-              nbr {d._2}
-            )
-          )
-  def partition = gradientPropagation(sense1)._2
-  override def main() =  partition
+  def partition(source: Boolean): ID =
+    rep((Double.PositiveInfinity, mid())) {
+      d => mux[(Double, ID)](source)((0.0, mid())){minHoodPlus((nbr{d._1} + nbrRange(),nbr {d._2}))}}._2
+
+  override def main() =  partition(sense1)
 object Demo20 extends Simulation[Partition]
 
 
 class Channel extends AggregateProgramSkeleton:
   import Builtins.Bounded.*
-  def gradient(source: Boolean) =
-    rep(Double.MaxValue):
-      d =>
-        mux(source)(0.0):
-          minHoodPlus(nbr {
-            d
-          } + nbrRange())
+  private def gradient(source: Boolean): Double =
+    rep(Double.PositiveInfinity){d => mux(source)(0.0){ minHoodPlus(nbr{d} + nbrRange())}}
 
-  def broadcast(source: Boolean, input: Double) =
-    rep((Double.MaxValue, input)):
-      d =>
-        mux[(Double, Double)](source)((0.0, input)):
-          minHoodPlus(
-            (
-              nbr {d._1} + nbrRange(),
-              nbr {d._2}
-            )
-          )
+  private def broadcast(source: Boolean, input: Double): Double =
+    rep((Double.PositiveInfinity, input)) { d => mux[(Double, Double)](source)((0.0, input))
+      { minHoodPlus((nbr {d._1} + nbrRange(), nbr {d._2}))}}
     ._2
 
-  def distance(source: Boolean, destination: Boolean) =
-    broadcast(source, gradient(destination))
+  private def broadcastPair(
+                             source: Boolean,
+                             input: Double
+                           ): (Double, Double) =
+    rep((Double.PositiveInfinity, input)) { d =>
+      mux(source)((0.0, input)) {
+        minHoodPlus(
+          (
+            nbr(d._1) + nbrRange(),
+            nbr(d._2)
+          )
+        )
+      }
+    }
 
-  def channel(source: Boolean, destination: Boolean, width: Double): Boolean =
-    gradient(source) + gradient(destination) <= distance(source, destination) + width
+  def distance(source: Boolean, destinationDistance: Double): Double =
+    broadcastPair(source, destinationDistance)._2
 
-  override def main() = channel(sense1, sense2, 100.0)
+  def channel(source: Boolean, destination: Boolean, width: Double): Boolean = {
+    val gradientSource = gradient(source)
+    val gradientDestination = gradient(destination)
+    val sourceToDestDistance = distance(source, gradientDestination)
+    gradientSource.isFinite && gradientDestination.isFinite && gradientSource + gradientDestination <= sourceToDestDistance + width
+  }
+
+  //override def main() = channel(sense1, sense2, 10.0)
   //override def main() = distance(sense1, sense2)
+  override def main() =
+    val fromSource = gradient(sense1)
+    val fromDestination = gradient(sense2)
+    val throughSource = distance(sense1, fromDestination)
+    val channelSourceDest = channel(sense1, sense2, 100.0)
+    (
+      fromSource,
+      fromDestination,
+      throughSource,
+      channelSourceDest
+    )
 object Demo21 extends Simulation[Channel]
